@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # ===============================================
-#   ⚔️  ikip v2.6: 凛冬哨兵 - 疆域分流加固工具
-#   (增加日志检阅、配置校验、深度卸载)
+#   ⚔️  ikip v2.7: 凛冬哨兵 - 疆域分流加固工具
+#   (修复 SSL 下载问题，新增渡鸦测试)
 # ===============================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -11,7 +11,6 @@ CONF_DIR="/etc/ikip"
 CONF_FILE="$CONF_DIR/config.json"
 BIN_FILE="/usr/bin/ikip"
 LOG_FILE="/var/log/ikip.log"
-CACHE_DIR="/var/lib/ikip"
 
 # --- 0. 军备物资检查 ---
 check_env() {
@@ -49,11 +48,10 @@ check_env
 # --- 1. 部署前置 ---
 mkdir -p $APP_DIR/src/strategies
 mkdir -p $CONF_DIR
-# 预先创建日志文件，防止 tail 报错
 touch $LOG_FILE
 
 echo -e "${BLUE}===============================================${NC}"
-echo -e "${BLUE}    ⚔️  ikip v2.6: 凛冬哨兵标准化军团           ${NC}"
+echo -e "${BLUE}    ⚔️  ikip v2.7: 凛冬哨兵标准化军团           ${NC}"
 echo -e "${BLUE}    “守望开始，至死方休。” - Vaelen 领主专用   ${NC}"
 echo -e "${BLUE}===============================================${NC}"
 
@@ -125,19 +123,20 @@ cat <<EOF > $CONF_FILE
 }
 EOF
 
-# --- 6. 部署代码 ---
-echo -e "\n${BLUE}正在从学城征召最新代码...${NC}"
+# --- 6. 部署代码 (修复 SSL 问题) ---
+echo -e "\n${BLUE}正在从学城征召最新代码 (SSL Bypass)...${NC}"
 REPO_USER=$(echo "$0" | grep -o "githubusercontent.com/[^/]*" | cut -d'/' -f2); REPO_USER=${REPO_USER:-"Vonzhen"}
 BASE_URL="https://raw.githubusercontent.com/$REPO_USER/ikip/master"
 
-wget -q -O $APP_DIR/src/main.py "$BASE_URL/src/main.py"
-wget -q -O $APP_DIR/src/utils.py "$BASE_URL/src/utils.py"
-wget -q -O $APP_DIR/src/strategies/ikuai.py "$BASE_URL/src/strategies/ikuai.py"
+# 增加 --no-check-certificate 解决 SSL 错误
+wget -q --no-check-certificate -O $APP_DIR/src/main.py "$BASE_URL/src/main.py"
+wget -q --no-check-certificate -O $APP_DIR/src/utils.py "$BASE_URL/src/utils.py"
+wget -q --no-check-certificate -O $APP_DIR/src/strategies/ikuai.py "$BASE_URL/src/strategies/ikuai.py"
 touch $APP_DIR/src/strategies/__init__.py
 chmod -R +x $APP_DIR
 
 if [ ! -s "$APP_DIR/src/main.py" ]; then
-    echo -e "${RED}❌ 致命错误：核心文件下载失败！${NC}"
+    echo -e "${RED}❌ 致命错误：核心文件下载失败！请检查网络。${NC}"
     exit 1
 fi
 
@@ -146,7 +145,7 @@ CRON="0 4 1 * *"
 PY_PATH=$(command -v python3)
 (crontab -l 2>/dev/null | grep -v "ikip"; echo "$CRON $PY_PATH $APP_DIR/src/main.py >> $LOG_FILE 2>&1") | crontab -
 
-# --- 8. 生成 CLI 面板 (v2.6 增强版) ---
+# --- 8. 生成 CLI 面板 (v2.7) ---
 cat << 'EOF_CLI' > $BIN_FILE
 #!/bin/sh
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -163,15 +162,44 @@ show_cfg() {
     fi
 }
 
+# 渡鸦测试函数
+test_raven() {
+    echo -e "${BLUE}--- 📢 渡鸦试飞 ---${NC}"
+    if [ ! -f "$CONF" ]; then echo -e "${RED}未找到配置！${NC}"; return; fi
+    
+    TOKEN=$(jq -r '.telegram.bot_token' $CONF)
+    CHAT_ID=$(jq -r '.telegram.chat_id' $CONF)
+    
+    if [ -z "$TOKEN" ] || [ -z "$CHAT_ID" ] || [ "$TOKEN" = "null" ]; then
+        echo -e "${YELLOW}渡鸦未配置 (Token 或 ID 为空)。${NC}"
+        return
+    fi
+
+    echo -e "正在呼叫 Telegram 塔台 (api.telegram.org)..."
+    # 使用 curl 测试，不依赖 Python，便于诊断底层网络
+    # -k 忽略证书，-m 10 超时设置
+    RESP=$(curl -s -k -m 10 -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d chat_id="$CHAT_ID" -d text="🦅 [测试] 凛冬哨兵: 渡鸦通讯链路正常。" -d parse_mode="Markdown")
+    
+    if echo "$RESP" | grep -q '"ok":true'; then
+        echo -e "${GREEN}✅ 试飞成功！请检查您的 Telegram 消息。${NC}"
+    else
+        echo -e "${RED}❌ 试飞失败！${NC}"
+        echo -e "错误回显: $RESP"
+        echo -e "${YELLOW}提示: 如果超时或无反应，通常是因为路由器本机无法连接 Telegram (GFW)。${NC}"
+        echo -e "请检查您的 OpenWrt 是否配置了本机代理 (Local Proxy)。"
+    fi
+}
+
 while true; do
     RAVEN=$([ -f "$CONF" ] && [ "$(jq -r '.telegram.enabled' $CONF)" = "true" ] && echo "${GREEN}开启${NC}" || echo "${RED}关闭${NC}")
-    echo -e "\n${GREEN}=== ikip v2.6: 积木指挥官 (Vaelen) ===${NC}"
+    echo -e "\n${GREEN}=== ikip v2.7: 积木指挥官 (Vaelen) ===${NC}"
     echo -e " 1) 🦅 巡航长城 (强制执行更新)"
     echo -e " 2) 📋 检阅军册 (查看配置)"
     echo -e " 3) ⚙️  战术调整 (编辑并校验配置)"
     echo -e " 4) 📜 检阅战报 (查看最新日志)"
     echo -e " 5) 📨 渡鸦传信 ($RAVEN)"
     echo -e " 6) 🔄 哨兵进化 (更新脚本)"
+    echo -e " 7) 📢 渡鸦试飞 (测试通知)"
     echo -e " 0) ❌ 焚毁契约 (卸载)"
     echo -e " q) 告退"
     printf "指令: "; read c
@@ -183,9 +211,8 @@ while true; do
         2) show_cfg ;;
         3) 
            [ -x "$(command -v vim)" ] && vim $CONF || vi $CONF
-           # 编辑后自动校验 JSON 格式
            if ! jq . $CONF >/dev/null 2>&1; then
-               echo -e "${RED}❌ 警告：配置文件格式错误！请立即修复，否则哨兵将停止工作。${NC}"
+               echo -e "${RED}❌ 警告：配置文件格式错误！${NC}"
                printf "按回车重新编辑..."; read dummy
                [ -x "$(command -v vim)" ] && vim $CONF || vi $CONF
            else
@@ -205,7 +232,8 @@ while true; do
         6) 
            echo "正在从学城获取最新卷轴..."
            INSTALL_SCRIPT="/tmp/ikip_install.sh"
-           wget -q -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
+           # 增加 --no-check-certificate
+           wget -q --no-check-certificate -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
            if [ -s "$INSTALL_SCRIPT" ]; then
                chmod +x $INSTALL_SCRIPT
                sh $INSTALL_SCRIPT
@@ -215,11 +243,11 @@ while true; do
                echo -e "${RED}更新失败：无法下载安装脚本。${NC}"
            fi
            ;;
+        7) test_raven ;;
         0) 
-           printf "${RED}确定要卸载吗？此操作将清除所有数据！[y/n]: ${NC}"; read confirm
+           printf "${RED}确定要卸载吗？[y/n]: ${NC}"; read confirm
            if [ "$confirm" = "y" ]; then
                crontab -l | grep -v "ikip" | crontab -
-               # 深度清理：包含配置、程序、日志、哈希缓存
                rm -rf /etc/ikip /usr/share/ikip $BIN_FILE $LOG /var/lib/ikip
                echo "已彻底铲除。"; exit
            fi
