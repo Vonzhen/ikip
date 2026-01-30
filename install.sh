@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # ===============================================
-#   ⚔️  ikip v2.5: 凛冬哨兵 - 疆域分流加固工具
-#   (支持配置继承与无损更新)
+#   ⚔️  ikip v2.6: 凛冬哨兵 - 疆域分流加固工具
+#   (增加日志检阅、配置校验、深度卸载)
 # ===============================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -11,6 +11,7 @@ CONF_DIR="/etc/ikip"
 CONF_FILE="$CONF_DIR/config.json"
 BIN_FILE="/usr/bin/ikip"
 LOG_FILE="/var/log/ikip.log"
+CACHE_DIR="/var/lib/ikip"
 
 # --- 0. 军备物资检查 ---
 check_env() {
@@ -48,21 +49,21 @@ check_env
 # --- 1. 部署前置 ---
 mkdir -p $APP_DIR/src/strategies
 mkdir -p $CONF_DIR
+# 预先创建日志文件，防止 tail 报错
+touch $LOG_FILE
 
 echo -e "${BLUE}===============================================${NC}"
-echo -e "${BLUE}    ⚔️  ikip v2.5: 凛冬哨兵标准化军团           ${NC}"
+echo -e "${BLUE}    ⚔️  ikip v2.6: 凛冬哨兵标准化军团           ${NC}"
 echo -e "${BLUE}    “守望开始，至死方休。” - Vaelen 领主专用   ${NC}"
 echo -e "${BLUE}===============================================${NC}"
 
-# --- 2. 配置继承逻辑 (V2.5 核心升级) ---
+# --- 2. 配置继承逻辑 ---
 SKIP_INPUT="false"
 
 if [ -f "$CONF_FILE" ]; then
-    # 尝试读取旧配置
     OLD_LOC=$(jq -r '.location_name // empty' $CONF_FILE)
     OLD_URL=$(jq -r '.ikuai.url // empty' $CONF_FILE)
     OLD_USER=$(jq -r '.ikuai.user // empty' $CONF_FILE)
-    # 密码不显示，但读取
     OLD_PASS=$(jq -r '.ikuai.pass // empty' $CONF_FILE)
     OLD_SRC=$(jq -r '.rule_settings.source_url // empty' $CONF_FILE)
     OLD_LIMIT=$(jq -r '.rule_settings.max_per_group // empty' $CONF_FILE)
@@ -74,29 +75,20 @@ if [ -f "$CONF_FILE" ]; then
         echo -e "\n${GREEN}✨ 检测到现有配置:${NC}"
         echo -e "   领地: ${YELLOW}$OLD_LOC${NC}"
         echo -e "   堡垒: ${YELLOW}$OLD_URL ($OLD_USER)${NC}"
-        echo -e "   阈值: ${YELLOW}$OLD_LIMIT${NC}"
         
         printf "${YELLOW}是否直接继承配置并跳过输入? [Y/n]: ${NC}"
         read INHERIT
         if [ "$INHERIT" != "n" ] && [ "$INHERIT" != "N" ]; then
             SKIP_INPUT="true"
-            # 继承变量
-            LOC_NAME=$OLD_LOC
-            IK_URL=$OLD_URL
-            IK_USER=$OLD_USER
-            IK_PASS=$OLD_PASS
-            SOURCE_URL=$OLD_SRC
-            LIMIT=$OLD_LIMIT
-            ENABLE_TG=$OLD_TG_EN
-            TG_TOKEN=$OLD_TG_TOK
-            TG_ID=$OLD_TG_ID
-            echo -e "${GREEN}✅ 已继承旧法典，即将开始重铸代码...${NC}"
+            LOC_NAME=$OLD_LOC; IK_URL=$OLD_URL; IK_USER=$OLD_USER; IK_PASS=$OLD_PASS
+            SOURCE_URL=$OLD_SRC; LIMIT=$OLD_LIMIT
+            ENABLE_TG=$OLD_TG_EN; TG_TOKEN=$OLD_TG_TOK; TG_ID=$OLD_TG_ID
+            echo -e "${GREEN}✅ 已继承旧法典。${NC}"
         fi
     fi
 fi
 
 if [ "$SKIP_INPUT" = "false" ]; then
-    # --- 交互配置 (仅在不跳过时执行) ---
     printf "${YELLOW}1. 授予此哨位的领地名 [默认: 家]: ${NC}"; read LOC_NAME; LOC_NAME=${LOC_NAME:-"家"}
     printf "${YELLOW}2. 爱快城堡的密道地址 [http://10.10.10.1]: ${NC}"; read IK_URL; IK_URL=${IK_URL:-"http://10.10.10.1"}
     printf "${YELLOW}3. 守城官署名 [admin]: ${NC}"; read IK_USER; IK_USER=${IK_USER:-"admin"}
@@ -123,7 +115,7 @@ if [ "$SKIP_INPUT" = "false" ]; then
     [ -n "$TG_TOKEN" ] && [ -n "$TG_ID" ] && ENABLE_TG="true"
 fi
 
-# --- 5. 生成配置 (无论是否继承，都重新写入以确保存储结构最新) ---
+# --- 5. 生成配置 ---
 cat <<EOF > $CONF_FILE
 {
   "location_name": "$LOC_NAME",
@@ -134,7 +126,7 @@ cat <<EOF > $CONF_FILE
 EOF
 
 # --- 6. 部署代码 ---
-echo -e "\n${BLUE}正在从学城征召最新军团代码...${NC}"
+echo -e "\n${BLUE}正在从学城征召最新代码...${NC}"
 REPO_USER=$(echo "$0" | grep -o "githubusercontent.com/[^/]*" | cut -d'/' -f2); REPO_USER=${REPO_USER:-"Vonzhen"}
 BASE_URL="https://raw.githubusercontent.com/$REPO_USER/ikip/master"
 
@@ -145,7 +137,7 @@ touch $APP_DIR/src/strategies/__init__.py
 chmod -R +x $APP_DIR
 
 if [ ! -s "$APP_DIR/src/main.py" ]; then
-    echo -e "${RED}❌ 致命错误：文件下载失败，请检查网络或仓库地址！${NC}"
+    echo -e "${RED}❌ 致命错误：核心文件下载失败！${NC}"
     exit 1
 fi
 
@@ -154,30 +146,32 @@ CRON="0 4 1 * *"
 PY_PATH=$(command -v python3)
 (crontab -l 2>/dev/null | grep -v "ikip"; echo "$CRON $PY_PATH $APP_DIR/src/main.py >> $LOG_FILE 2>&1") | crontab -
 
-# --- 8. 生成 CLI 面板 ---
+# --- 8. 生成 CLI 面板 (v2.6 增强版) ---
 cat << 'EOF_CLI' > $BIN_FILE
 #!/bin/sh
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 CONF="/etc/ikip/config.json"
 APP_MAIN="/usr/share/ikip/src/main.py"
+LOG="/var/log/ikip.log"
 
 show_cfg() {
     echo -e "\n${BLUE}--- 📋 军册检阅 ---${NC}"
     if [ -f "$CONF" ]; then
         jq -r '"领地: \(.location_name)\n堡垒: \(.ikuai.url)\n源站: \(.rule_settings.source_url)\n阈值: \(.rule_settings.max_per_group)"' $CONF
     else
-        echo -e "${RED}法典缺失，请重新安装！${NC}"
+        echo -e "${RED}法典缺失！${NC}"
     fi
 }
 
 while true; do
     RAVEN=$([ -f "$CONF" ] && [ "$(jq -r '.telegram.enabled' $CONF)" = "true" ] && echo "${GREEN}开启${NC}" || echo "${RED}关闭${NC}")
-    echo -e "\n${GREEN}=== ikip v2.5: 积木指挥官 (Vaelen) ===${NC}"
+    echo -e "\n${GREEN}=== ikip v2.6: 积木指挥官 (Vaelen) ===${NC}"
     echo -e " 1) 🦅 巡航长城 (强制执行更新)"
     echo -e " 2) 📋 检阅军册 (查看配置)"
-    echo -e " 3) ⚙️  战术调整 (手动编辑配置)"
-    echo -e " 4) 📨 渡鸦传信 ($RAVEN)"
-    echo -e " 5) 🔄 哨兵进化 (更新脚本)"
+    echo -e " 3) ⚙️  战术调整 (编辑并校验配置)"
+    echo -e " 4) 📜 检阅战报 (查看最新日志)"
+    echo -e " 5) 📨 渡鸦传信 ($RAVEN)"
+    echo -e " 6) 🔄 哨兵进化 (更新脚本)"
     echo -e " 0) ❌ 焚毁契约 (卸载)"
     echo -e " q) 告退"
     printf "指令: "; read c
@@ -188,14 +182,27 @@ while true; do
            ;;
         2) show_cfg ;;
         3) 
-           [ -x "$(command -v vim)" ] && vim $CONF || vi $CONF 
+           [ -x "$(command -v vim)" ] && vim $CONF || vi $CONF
+           # 编辑后自动校验 JSON 格式
+           if ! jq . $CONF >/dev/null 2>&1; then
+               echo -e "${RED}❌ 警告：配置文件格式错误！请立即修复，否则哨兵将停止工作。${NC}"
+               printf "按回车重新编辑..."; read dummy
+               [ -x "$(command -v vim)" ] && vim $CONF || vi $CONF
+           else
+               echo -e "${GREEN}✅ 配置格式校验通过。${NC}"
+           fi
            ;; 
-        4) 
+        4)
+           echo -e "${BLUE}--- 最新 20 行战报 ($LOG) ---${NC}"
+           tail -n 20 $LOG
+           echo -e "${BLUE}------------------------------------${NC}"
+           ;;
+        5) 
            st=$(jq -r '.telegram.enabled' $CONF); 
            if [ "$st" = "true" ]; then n=false; else n=true; fi
            jq ".telegram.enabled = $n" $CONF > ${CONF}.tmp && mv ${CONF}.tmp $CONF
            echo "状态已切换。" ;;
-        5) 
+        6) 
            echo "正在从学城获取最新卷轴..."
            INSTALL_SCRIPT="/tmp/ikip_install.sh"
            wget -q -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
@@ -209,11 +216,12 @@ while true; do
            fi
            ;;
         0) 
-           printf "${RED}确定要卸载吗？[y/n]: ${NC}"; read confirm
+           printf "${RED}确定要卸载吗？此操作将清除所有数据！[y/n]: ${NC}"; read confirm
            if [ "$confirm" = "y" ]; then
                crontab -l | grep -v "ikip" | crontab -
-               rm -rf /etc/ikip /usr/share/ikip $BIN_FILE
-               echo "已卸载"; exit
+               # 深度清理：包含配置、程序、日志、哈希缓存
+               rm -rf /etc/ikip /usr/share/ikip $BIN_FILE $LOG /var/lib/ikip
+               echo "已彻底铲除。"; exit
            fi
            ;;
         q) exit ;;
