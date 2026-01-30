@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # ===============================================
-#   ⚔️  ikip v2.3: 凛冬哨兵 - 疆域分流加固工具
+#   ⚔️  ikip v2.4: 凛冬哨兵 - 疆域分流加固工具
 # ===============================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -48,11 +48,12 @@ mkdir -p $APP_DIR/src/strategies
 mkdir -p $CONF_DIR
 
 echo -e "${BLUE}===============================================${NC}"
-echo -e "${BLUE}    ⚔️  ikip v2.3: 凛冬哨兵标准化军团           ${NC}"
+echo -e "${BLUE}    ⚔️  ikip v2.4: 凛冬哨兵标准化军团           ${NC}"
 echo -e "${BLUE}    “守望开始，至死方休。” - Vaelen 领主专用   ${NC}"
 echo -e "${BLUE}===============================================${NC}"
 
-# --- 2. 交互配置 (移除了圆括号以兼容 ash) ---
+# --- 2. 交互配置 ---
+# 注意：read 命令在管道模式下会失效，v2.4 已在 CLI 中修复了调用方式
 printf "${YELLOW}1. 授予此哨位的领地名 [默认: 家]: ${NC}"; read LOC_NAME; LOC_NAME=${LOC_NAME:-"家"}
 printf "${YELLOW}2. 爱快城堡的密道地址 [http://10.10.10.1]: ${NC}"; read IK_URL; IK_URL=${IK_URL:-"http://10.10.10.1"}
 printf "${YELLOW}3. 守城官署名 [admin]: ${NC}"; read IK_USER; IK_USER=${IK_USER:-"admin"}
@@ -112,6 +113,7 @@ PY_PATH=$(command -v python3)
 (crontab -l 2>/dev/null | grep -v "ikip"; echo "$CRON $PY_PATH $APP_DIR/src/main.py >> $LOG_FILE 2>&1") | crontab -
 
 # --- 8. 生成 CLI 面板 ---
+# ★关键修正：使用 wget 下载到临时文件再执行，避开管道冲突
 cat << 'EOF_CLI' > $BIN_FILE
 #!/bin/sh
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -129,7 +131,7 @@ show_cfg() {
 
 while true; do
     RAVEN=$([ -f "$CONF" ] && [ "$(jq -r '.telegram.enabled' $CONF)" = "true" ] && echo "${GREEN}开启${NC}" || echo "${RED}关闭${NC}")
-    echo -e "\n${GREEN}=== ikip v2.3: 积木指挥官 (Vaelen) ===${NC}"
+    echo -e "\n${GREEN}=== ikip v2.4: 积木指挥官 (Vaelen) ===${NC}"
     echo -e " 1) 🦅 巡航长城 (强制执行更新)"
     echo -e " 2) 📋 检阅军册 (查看配置)"
     echo -e " 3) ⚙️  战术调整 (手动编辑配置)"
@@ -153,8 +155,19 @@ while true; do
            jq ".telegram.enabled = $n" $CONF > ${CONF}.tmp && mv ${CONF}.tmp $CONF
            echo "状态已切换。" ;;
         5) 
-           echo "正在重铸..."
-           curl -sL https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh | sh 
+           echo "正在从学城获取最新卷轴..."
+           # ★修复点：下载到 /tmp 并断开管道连接，确保 read 命令正常工作
+           INSTALL_SCRIPT="/tmp/ikip_install.sh"
+           wget -q -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
+           if [ -s "$INSTALL_SCRIPT" ]; then
+               chmod +x $INSTALL_SCRIPT
+               sh $INSTALL_SCRIPT
+               rm -f $INSTALL_SCRIPT
+               # 更新后直接退出面板，让用户重新进入以加载新逻辑
+               exit 0 
+           else
+               echo -e "${RED}更新失败：无法下载安装脚本。${NC}"
+           fi
            ;;
         0) 
            printf "${RED}确定要卸载吗？[y/n]: ${NC}"; read confirm
