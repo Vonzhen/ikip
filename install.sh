@@ -1,12 +1,14 @@
 #!/bin/sh
 
 # ===============================================
-#   ⚔️  ikip v2.4: 凛冬哨兵 - 疆域分流加固工具
+#   ⚔️  ikip v2.5: 凛冬哨兵 - 疆域分流加固工具
+#   (支持配置继承与无损更新)
 # ===============================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
 APP_DIR="/usr/share/ikip"
 CONF_DIR="/etc/ikip"
+CONF_FILE="$CONF_DIR/config.json"
 BIN_FILE="/usr/bin/ikip"
 LOG_FILE="/var/log/ikip.log"
 
@@ -48,41 +50,81 @@ mkdir -p $APP_DIR/src/strategies
 mkdir -p $CONF_DIR
 
 echo -e "${BLUE}===============================================${NC}"
-echo -e "${BLUE}    ⚔️  ikip v2.4: 凛冬哨兵标准化军团           ${NC}"
+echo -e "${BLUE}    ⚔️  ikip v2.5: 凛冬哨兵标准化军团           ${NC}"
 echo -e "${BLUE}    “守望开始，至死方休。” - Vaelen 领主专用   ${NC}"
 echo -e "${BLUE}===============================================${NC}"
 
-# --- 2. 交互配置 ---
-# 注意：read 命令在管道模式下会失效，v2.4 已在 CLI 中修复了调用方式
-printf "${YELLOW}1. 授予此哨位的领地名 [默认: 家]: ${NC}"; read LOC_NAME; LOC_NAME=${LOC_NAME:-"家"}
-printf "${YELLOW}2. 爱快城堡的密道地址 [http://10.10.10.1]: ${NC}"; read IK_URL; IK_URL=${IK_URL:-"http://10.10.10.1"}
-printf "${YELLOW}3. 守城官署名 [admin]: ${NC}"; read IK_USER; IK_USER=${IK_USER:-"admin"}
-printf "${YELLOW}4. 开启堡垒的秘密令牌 [必填]: ${NC}"; read IK_PASS
-while [ -z "$IK_PASS" ]; do printf "${RED}   令牌不可缺失，请重新输入: ${NC}"; read IK_PASS; done
+# --- 2. 配置继承逻辑 (V2.5 核心升级) ---
+SKIP_INPUT="false"
 
-# --- 3. 战术参数 ---
-echo -e "\n${YELLOW}=== ⚙️  战术参数配置 ===${NC}"
-DEFAULT_URL="https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt"
-printf "${YELLOW}5. IP 列表源地址 [回车默认]: ${NC}"; read INPUT_URL
-SOURCE_URL=${INPUT_URL:-$DEFAULT_URL}
+if [ -f "$CONF_FILE" ]; then
+    # 尝试读取旧配置
+    OLD_LOC=$(jq -r '.location_name // empty' $CONF_FILE)
+    OLD_URL=$(jq -r '.ikuai.url // empty' $CONF_FILE)
+    OLD_USER=$(jq -r '.ikuai.user // empty' $CONF_FILE)
+    # 密码不显示，但读取
+    OLD_PASS=$(jq -r '.ikuai.pass // empty' $CONF_FILE)
+    OLD_SRC=$(jq -r '.rule_settings.source_url // empty' $CONF_FILE)
+    OLD_LIMIT=$(jq -r '.rule_settings.max_per_group // empty' $CONF_FILE)
+    OLD_TG_EN=$(jq -r '.telegram.enabled // empty' $CONF_FILE)
+    OLD_TG_TOK=$(jq -r '.telegram.bot_token // empty' $CONF_FILE)
+    OLD_TG_ID=$(jq -r '.telegram.chat_id // empty' $CONF_FILE)
 
-DEFAULT_LIMIT=4000
-while true; do
-    printf "${YELLOW}6. 单组 IP 最大阈值 [默认 4000, Max 5000]: ${NC}"; read INPUT_LIMIT
-    LIMIT=${INPUT_LIMIT:-$DEFAULT_LIMIT}
-    if [ "$LIMIT" -le 5000 ] 2>/dev/null && [ "$LIMIT" -ge 100 ] 2>/dev/null; then break; fi
-    echo -e "${RED}   ❌ 无效阈值，请重新输入！${NC}"
-done
+    if [ -n "$OLD_LOC" ] && [ -n "$OLD_URL" ]; then
+        echo -e "\n${GREEN}✨ 检测到现有配置:${NC}"
+        echo -e "   领地: ${YELLOW}$OLD_LOC${NC}"
+        echo -e "   堡垒: ${YELLOW}$OLD_URL ($OLD_USER)${NC}"
+        echo -e "   阈值: ${YELLOW}$OLD_LIMIT${NC}"
+        
+        printf "${YELLOW}是否直接继承配置并跳过输入? [Y/n]: ${NC}"
+        read INHERIT
+        if [ "$INHERIT" != "n" ] && [ "$INHERIT" != "N" ]; then
+            SKIP_INPUT="true"
+            # 继承变量
+            LOC_NAME=$OLD_LOC
+            IK_URL=$OLD_URL
+            IK_USER=$OLD_USER
+            IK_PASS=$OLD_PASS
+            SOURCE_URL=$OLD_SRC
+            LIMIT=$OLD_LIMIT
+            ENABLE_TG=$OLD_TG_EN
+            TG_TOKEN=$OLD_TG_TOK
+            TG_ID=$OLD_TG_ID
+            echo -e "${GREEN}✅ 已继承旧法典，即将开始重铸代码...${NC}"
+        fi
+    fi
+fi
 
-# --- 4. 渡鸦设置 ---
-printf "\n${YELLOW}7. 渡鸦通讯设置 [若无请回车]:${NC}\n"
-printf "   Token: "; read TG_TOKEN
-printf "   ChatID: "; read TG_ID
-ENABLE_TG="false"
-[ -n "$TG_TOKEN" ] && [ -n "$TG_ID" ] && ENABLE_TG="true"
+if [ "$SKIP_INPUT" = "false" ]; then
+    # --- 交互配置 (仅在不跳过时执行) ---
+    printf "${YELLOW}1. 授予此哨位的领地名 [默认: 家]: ${NC}"; read LOC_NAME; LOC_NAME=${LOC_NAME:-"家"}
+    printf "${YELLOW}2. 爱快城堡的密道地址 [http://10.10.10.1]: ${NC}"; read IK_URL; IK_URL=${IK_URL:-"http://10.10.10.1"}
+    printf "${YELLOW}3. 守城官署名 [admin]: ${NC}"; read IK_USER; IK_USER=${IK_USER:-"admin"}
+    printf "${YELLOW}4. 开启堡垒的秘密令牌 [必填]: ${NC}"; read IK_PASS
+    while [ -z "$IK_PASS" ]; do printf "${RED}   令牌不可缺失，请重新输入: ${NC}"; read IK_PASS; done
 
-# --- 5. 生成配置 ---
-cat <<EOF > $CONF_DIR/config.json
+    echo -e "\n${YELLOW}=== ⚙️  战术参数配置 ===${NC}"
+    DEFAULT_URL="https://raw.githubusercontent.com/17mon/china_ip_list/master/china_ip_list.txt"
+    printf "${YELLOW}5. IP 列表源地址 [回车默认]: ${NC}"; read INPUT_URL
+    SOURCE_URL=${INPUT_URL:-$DEFAULT_URL}
+
+    DEFAULT_LIMIT=4000
+    while true; do
+        printf "${YELLOW}6. 单组 IP 最大阈值 [默认 4000, Max 5000]: ${NC}"; read INPUT_LIMIT
+        LIMIT=${INPUT_LIMIT:-$DEFAULT_LIMIT}
+        if [ "$LIMIT" -le 5000 ] 2>/dev/null && [ "$LIMIT" -ge 100 ] 2>/dev/null; then break; fi
+        echo -e "${RED}   ❌ 无效阈值，请重新输入！${NC}"
+    done
+
+    printf "\n${YELLOW}7. 渡鸦通讯设置 [若无请回车]:${NC}\n"
+    printf "   Token: "; read TG_TOKEN
+    printf "   ChatID: "; read TG_ID
+    ENABLE_TG="false"
+    [ -n "$TG_TOKEN" ] && [ -n "$TG_ID" ] && ENABLE_TG="true"
+fi
+
+# --- 5. 生成配置 (无论是否继承，都重新写入以确保存储结构最新) ---
+cat <<EOF > $CONF_FILE
 {
   "location_name": "$LOC_NAME",
   "ikuai": { "url": "$IK_URL", "user": "$IK_USER", "pass": "$IK_PASS" },
@@ -92,7 +134,7 @@ cat <<EOF > $CONF_DIR/config.json
 EOF
 
 # --- 6. 部署代码 ---
-echo -e "\n${BLUE}正在从学城征召军团...${NC}"
+echo -e "\n${BLUE}正在从学城征召最新军团代码...${NC}"
 REPO_USER=$(echo "$0" | grep -o "githubusercontent.com/[^/]*" | cut -d'/' -f2); REPO_USER=${REPO_USER:-"Vonzhen"}
 BASE_URL="https://raw.githubusercontent.com/$REPO_USER/ikip/master"
 
@@ -113,7 +155,6 @@ PY_PATH=$(command -v python3)
 (crontab -l 2>/dev/null | grep -v "ikip"; echo "$CRON $PY_PATH $APP_DIR/src/main.py >> $LOG_FILE 2>&1") | crontab -
 
 # --- 8. 生成 CLI 面板 ---
-# ★关键修正：使用 wget 下载到临时文件再执行，避开管道冲突
 cat << 'EOF_CLI' > $BIN_FILE
 #!/bin/sh
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -131,7 +172,7 @@ show_cfg() {
 
 while true; do
     RAVEN=$([ -f "$CONF" ] && [ "$(jq -r '.telegram.enabled' $CONF)" = "true" ] && echo "${GREEN}开启${NC}" || echo "${RED}关闭${NC}")
-    echo -e "\n${GREEN}=== ikip v2.4: 积木指挥官 (Vaelen) ===${NC}"
+    echo -e "\n${GREEN}=== ikip v2.5: 积木指挥官 (Vaelen) ===${NC}"
     echo -e " 1) 🦅 巡航长城 (强制执行更新)"
     echo -e " 2) 📋 检阅军册 (查看配置)"
     echo -e " 3) ⚙️  战术调整 (手动编辑配置)"
@@ -156,14 +197,12 @@ while true; do
            echo "状态已切换。" ;;
         5) 
            echo "正在从学城获取最新卷轴..."
-           # ★修复点：下载到 /tmp 并断开管道连接，确保 read 命令正常工作
            INSTALL_SCRIPT="/tmp/ikip_install.sh"
            wget -q -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
            if [ -s "$INSTALL_SCRIPT" ]; then
                chmod +x $INSTALL_SCRIPT
                sh $INSTALL_SCRIPT
                rm -f $INSTALL_SCRIPT
-               # 更新后直接退出面板，让用户重新进入以加载新逻辑
                exit 0 
            else
                echo -e "${RED}更新失败：无法下载安装脚本。${NC}"
