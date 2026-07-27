@@ -125,7 +125,7 @@ EOF
 
 # --- 6. 部署代码 (修复 SSL 问题) ---
 echo -e "\n${BLUE}正在从学城征召最新代码 (SSL Bypass)...${NC}"
-REPO_USER=$(echo "$0" | grep -o "githubusercontent.com/[^/]*" | cut -d'/' -f2); REPO_USER=${REPO_USER:-"Vonzhen"}
+REPO_USER=$(echo "$0" | grep -o "githubusercontent.com/[^/]*" | cut -d'/' -f2); REPO_USER=${REPO_USER:-"miozen"}
 BASE_URL="https://raw.githubusercontent.com/$REPO_USER/ikip/master"
 
 # 增加 --no-check-certificate 解决 SSL 错误
@@ -233,7 +233,7 @@ while true; do
            echo "正在从学城获取最新卷轴..."
            INSTALL_SCRIPT="/tmp/ikip_install.sh"
            # 增加 --no-check-certificate
-           wget -q --no-check-certificate -O $INSTALL_SCRIPT https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh
+           wget -q --no-check-certificate -O $INSTALL_SCRIPT https://raw.githubusercontent.com/miozen/ikip/master/install.sh
            if [ -s "$INSTALL_SCRIPT" ]; then
                chmod +x $INSTALL_SCRIPT
                sh $INSTALL_SCRIPT
