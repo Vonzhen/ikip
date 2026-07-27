@@ -22,7 +22,7 @@
 在 OpenWrt 或 Linux 终端执行以下命令（自动安装 Python3/jq 等依赖）：
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/Vonzhen/ikip/master/install.sh)"
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/miozen/ikip/master/install.sh)"
 
 ```
 
